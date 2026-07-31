@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>광역 변성 작용 시뮬레이터</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #1a1a1a;
+            color: white;
+            font-family: 'Pretendard', sans-serif;
+        }
+        #container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        /* 웹캠 영상은 화면에 꽉 차게 하되 거울 모드로 반전 */
+        video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+            z-index: 1;
+            opacity: 0.6;
+        }
+        /* 캔버스는 암석과 UI를 그리기 위해 비디오 위에 위치 */
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 2;
+            transform: scaleX(-1); /* 손 좌표 매칭을 위해 캔버스도 반전 */
+        }
+        /* 텍스트 UI는 반전되지 않도록 별도 레이어로 구성 */
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 3;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 20px;
+            border-radius: 10px;
+            pointer-events: none;
+        }
+        h1 { margin: 0 0 10px 0; font-size: 24px; }
+        #rock-name { font-size: 32px; font-weight: bold; color: #4db8ff; margin-bottom: 10px; }
+        #pressure-bar-container {
+            width: 300px;
+            height: 20px;
+            background: #333;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        #pressure-bar {
+            width: 0%;
+            height: 100%;
+            background: linear-gradient(90deg, #4caf50, #ff9800, #f44336);
+            transition: width 0.1s;
+        }
+        #instruction {
+            position: absolute;
+            bottom: 30px;
+            width: 100%;
+            text-align: center;
+            z-index: 3;
+            font-size: 20px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            pointer-events: none;
+        }
+    </style>
+    <!-- MediaPipe 라이브러리 로드 -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+</head>
+<body>
+    <div id="container">
+        <video id="video" autoplay playsinline></video>
+        <canvas id="canvas"></canvas>
+        <div id="ui-layer">
+            <h1>지구과학: 광역 변성 작용</h1>
+            <div id="rock-name">셰일 (Shale)</div>
+            <div>압력 (Pressure)</div>
+            <div id="pressure-bar-container">
+                <div id="pressure-bar"></div>
+            </div>
+        </div>
+        <div id="instruction">두 손을 화면에 띄우고 서서히 모아보세요!</div>
+    </div>
+
+    <script>
+        const videoElement = document.getElementById('video');
+        const canvasElement = document.getElementById('canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        
+        const rockNameEl = document.getElementById('rock-name');
+        const pressureBarEl = document.getElementById('pressure-bar');
+        
+        let pressure = 0; // 0.0 ~ 1.0
+        let lockedAngle = null; // 압력 방향 (라디안)
+        
+        // 창 크기에 맞게 캔버스 크기 조정
+        function resizeCanvas() {
+            canvasElement.width = window.innerWidth;
+            canvasElement.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // 암석 렌더링 함수
+        function drawRock(ctx, x, y, radius, pressureLevel, angle) {
+            ctx.save();
+            ctx.translate(x, y);
+            
+            // 압력 방향의 수직(엽리 방향)으로 회전
+            if (angle !== null) {
+                ctx.rotate(angle + Math.PI / 2);
+            }
+
+            // 암석 바탕(원형)
+            ctx.beginPath();
+            ctx.arc(0, 0, radius, 0, 2 * Math.PI);
+            
+            // 압력에 따른 배경색 변화 (회색 -> 어두운 회색/검정)
+            const bgIntensity = Math.floor(120 - (pressureLevel * 60));
+            ctx.fillStyle = `rgb(${bgIntensity}, ${bgIntensity}, ${bgIntensity + 10})`;
+            ctx.fill();
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = '#222';
+            ctx.stroke();
+            ctx.clip(); // 원 안쪽으로만 그려지도록 클리핑
+
+            // 암석 조직 (압력에 따라 다름)
+            if (pressureLevel < 0.2) {
+                rockNameEl.innerText = "셰일 (Shale) - 방향성 없음";
+                rockNameEl.style.color = "#a0a0a0";
+                // 무작위 점토 광물 무늬
+                ctx.fillStyle = "#555";
+                for(let i=0; i<100; i++) {
+                    ctx.beginPath();
+                    ctx.arc((Math.random()-0.5)*radius*2, (Math.random()-0.5)*radius*2, Math.random()*3+1, 0, Math.PI*2);
+                    ctx.fill();
+                }
+            } else if (pressureLevel < 0.5) {
+                rockNameEl.innerText = "슬레이트/천매암 - 얇은 편리";
+                rockNameEl.style.color = "#4db8ff";
+                // 얇은 선형 구조
+                ctx.strokeStyle = "rgba(255,255,255,0.4)";
+                ctx.lineWidth = 1;
+                for(let i=-radius; i<radius; i+=10) {
+                    ctx.beginPath();
+                    ctx.moveTo(-radius, i + (Math.random()*4-2));
+                    ctx.lineTo(radius, i + (Math.random()*4-2));
+                    ctx.stroke();
+                }
+            } else if (pressureLevel < 0.8) {
+                rockNameEl.innerText = "편암 (Schist) - 뚜렷한 편리";
+                rockNameEl.style.color = "#ffeb3b";
+                // 뚜렷하고 약간 구불구불한 선형 구조
+                ctx.lineWidth = 3;
+                for(let i=-radius; i<radius; i+=15) {
+                    ctx.strokeStyle = (i%30 === 0) ? "rgba(255,255,255,0.8)" : "rgba(30,30,30,0.8)";
+                    ctx.beginPath();
+                    ctx.moveTo(-radius, i);
+                    ctx.quadraticCurveTo(0, i + (Math.random()*20-10), radius, i);
+                    ctx.stroke();
+                }
+            } else {
+                rockNameEl.innerText = "편마암 (Gneiss) - 편마 구조";
+                rockNameEl.style.color = "#ff5722";
+                // 밝고 어두운 굵은 줄무늬 (편마 구조)
+                ctx.lineWidth = 12;
+                for(let i=-radius; i<radius; i+=20) {
+                    ctx.strokeStyle = (i%40 === 0) ? "#f5f5dc" : "#111"; // 밝은 띠와 어두운 띠 교차
+                    ctx.beginPath();
+                    ctx.moveTo(-radius, i);
+                    ctx.bezierCurveTo(-radius/2, i+15, radius/2, i-15, radius, i);
+                    ctx.stroke();
+                }
+            }
+            ctx.restore();
+        }
+
+        function onResults(results) {
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            
+            let hand1 = null;
+            let hand2 = null;
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length >= 2) {
+                hand1 = results.multiHandLandmarks[0][9]; // 손 1의 중지 밑 관절
+                hand2 = results.multiHandLandmarks[1][9]; // 손 2의 중지 밑 관절
+
+                // 손 위치 캔버스에 시각화 (반전된 캔버스 좌표에 맞춤)
+                const h1X = hand1.x * canvasElement.width;
+                const h1Y = hand1.y * canvasElement.height;
+                const h2X = hand2.x * canvasElement.width;
+                const h2Y = hand2.y * canvasElement.height;
+
+                // 손 위치에 원 그리기
+                canvasCtx.fillStyle = 'rgba(0, 255, 0, 0.5)';
+                canvasCtx.beginPath(); ctx.arc(h1X, h1Y, 15, 0, 2*Math.PI); canvasCtx.fill();
+                canvasCtx.beginPath(); ctx.arc(h2X, h2Y, 15, 0, 2*Math.PI); canvasCtx.fill();
+
+                // 두 손을 잇는 선 그리기 (압력 방향)
+                canvasCtx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
+                canvasCtx.lineWidth = 5;
+                canvasCtx.beginPath();
+                canvasCtx.moveTo(h1X, h1Y);
+                canvasCtx.lineTo(h2X, h2Y);
+                canvasCtx.stroke();
+
+                // 거리 계산 (화면 너비 대비 비율)
+                const dx = hand1.x - hand2.x;
+                const dy = hand1.y - hand2.y;
+                const distance = Math.sqrt(dx*dx + dy*dy);
+
+                // 최대/최소 거리 설정 (환경에 따라 조절 필요)
+                const MAX_DIST = 0.5; // 손이 멀리 있을 때 (압력 0)
+                const MIN_DIST = 0.1; // 손이 가까울 때 (압력 100)
+
+                // 거리를 0~1 사이의 압력으로 치환
+                let rawPressure = 1 - ((distance - MIN_DIST) / (MAX_DIST - MIN_DIST));
+                pressure = Math.max(0, Math.min(1, rawPressure)); // 0~1 사이로 제한
+
+                // 압력이 막 가해지기 시작할 때 방향 고정
+                if (pressure > 0.1) {
+                    if (lockedAngle === null) {
+                        lockedAngle = Math.atan2(dy, dx);
+                    }
+                } else {
+                    // 손이 다시 멀어지면 방향 리셋
+                    lockedAngle = null;
+                }
+            } else {
+                // 손이 2개 미만이면 압력 서서히 감소
+                pressure = Math.max(0, pressure - 0.05);
+                if(pressure === 0) lockedAngle = null;
+            }
+
+            // UI 업데이트
+            pressureBarEl.style.width = `${pressure * 100}%`;
+
+            // 화면 중앙에 암석 그리기
+            const centerX = canvasElement.width / 2;
+            const centerY = canvasElement.height / 2;
+            drawRock(canvasCtx, centerX, centerY, 150, pressure, lockedAngle);
+        }
+
+        const hands = new Hands({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+        }});
+        
+        hands.setOptions({
+            maxNumHands: 2,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+        
+        hands.onResults(onResults);
+
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await hands.send({image: videoElement});
+            },
+            width: 1280,
+            height: 720
+        });
+        camera.start();
+    </script>
+</body>
+</html>
