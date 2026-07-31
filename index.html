@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>광역 변성 작용 시뮬레이터 (최종 수정)</title>
+    <title>광역 변성 작용 시뮬레이터</title>
     <style>
         body {
             margin: 0;
@@ -107,6 +107,7 @@
         const ROCK_RADIUS = 150; // 암석 크기 고정
         let pressure = 0;
         let lockedAngle = null;
+
         // 셰일 광물 입자 위치 고정
         let shaleMineralParticles = [];
         function initializeShaleParticles(radius) {
@@ -121,20 +122,30 @@
         }
         // 초기화 (페이지 로드 시 즉시 실행)
         initializeShaleParticles(ROCK_RADIUS);
+
         function resizeCanvas() {
             canvasElement.width = window.innerWidth;
             canvasElement.height = window.innerHeight;
         }
         window.addEventListener('resize', resizeCanvas);
         resizeCanvas();
+
         // 암석 렌더링 함수
         function drawRock(ctx, x, y, radius, pressureLevel, angle) {
             ctx.save();
             ctx.translate(x, y);
+
             // 압력 방향의 수직(엽리 방향)으로 회전 (방향이 고정되었을 때만)
             if (angle !== null) {
-                ctx.rotate(angle + Math.PI / 2);
+                // [수정] 캔버스 전체가 CSS transform: scaleX(-1) 로 좌우 반전되어 있으므로,
+                // JS에서 계산한 각도(angle)로 그대로 회전시키면 화면에는 반전되어 나타나
+                // 실제 압력 방향(빨간선)과 엽리 무늬가 수직이 아닌 것처럼 보이게 됩니다.
+                // 따라서 각도의 부호를 반전(-angle)시켜 화면상에서 정확히
+                // "압력 방향과 수직"으로 엽리가 그려지도록 보정합니다.
+                const correctedAngle = -angle;
+                ctx.rotate(correctedAngle + Math.PI / 2);
             }
+
             // [1] 암석 바탕(원형) - 모든 단계 공통
             ctx.beginPath();
             ctx.arc(0, 0, radius, 0, 2 * Math.PI);
@@ -146,6 +157,7 @@
             ctx.strokeStyle = '#333';
             ctx.stroke();
             ctx.clip(); // 원 안쪽으로만 조직을 그리기 위해 클리핑
+
             // [2] 압력 단계별 암석 조직 그리기
             // 셰일 (미변성) - 낮은 압력 또는 방향 고정 전
             if (pressureLevel < 0.2 || angle === null) {
@@ -198,13 +210,16 @@
             }
             ctx.restore(); // 클리핑 및 회전 해제
         }
+
         function onResults(results) {
             // 매 프레임 캔버스를 깨끗이 지웁니다 (비디오 위에 렌더링 위해)
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
             let numHands = 0;
             if (results.multiHandLandmarks) {
                 numHands = results.multiHandLandmarks.length;
             }
+
             if (numHands === 0) {
                 // 손이 인식되지 않음
                 notificationEl.innerText = "양손을 화면에 띄워주세요!";
@@ -219,18 +234,21 @@
             } else {
                 // 양손 모두 인식됨
                 notificationEl.style.display = "none"; // 알림 숨김
-                // 거리를 거울모드 기준으로 다시 계산하기 위해 좌우 반전 복원
+
                 const h1 = results.multiHandLandmarks[0][9];
                 const h2 = results.multiHandLandmarks[1][9];
+
                 // 인식된 손 좌표를 캔버스 실제 크기로 변환
                 const h1X = h1.x * canvasElement.width;
                 const h1Y = h1.y * canvasElement.height;
                 const h2X = h2.x * canvasElement.width;
                 const h2Y = h2.y * canvasElement.height;
+
                 // 손 위치 시각화 (녹색 점)
                 canvasCtx.fillStyle = 'rgba(0, 255, 0, 0.6)';
                 canvasCtx.beginPath(); canvasCtx.arc(h1X, h1Y, 15, 0, 2*Math.PI); canvasCtx.fill();
                 canvasCtx.beginPath(); canvasCtx.arc(h2X, h2Y, 15, 0, 2*Math.PI); canvasCtx.fill();
+
                 // 압력 방향 시각화 (빨간 선)
                 canvasCtx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
                 canvasCtx.lineWidth = 6;
@@ -238,31 +256,37 @@
                 canvasCtx.moveTo(h1X, h1Y);
                 canvasCtx.lineTo(h2X, h2Y);
                 canvasCtx.stroke();
+
                 // [핵심] 거리 계산 및 압력 치환
-                // dx 계산 시, MediaPipe 원본 좌표(h1.x)를 사용하여 반전으로 인한 혼란 방지
+                // dx, dy는 MediaPipe 원본 좌표(반전 전) 기준으로 계산 (거리 계산에는 영향 없음)
                 const dx = h1.x - h2.x;
                 const dy = h1.y - h2.y;
                 const distance = Math.sqrt(dx*dx + dy*dy);
+
                 // 반응 범위 확대 (더 민감하게)
                 const MAX_DIST = 0.75; // 이 거리보다 멀면 압력 0
                 const MIN_DIST = 0.08; // 이 거리보다 가까우면 압력 1
                 let rawPressure = 1 - ((distance - MIN_DIST) / (MAX_DIST - MIN_DIST));
                 pressure = Math.max(0, Math.min(1, rawPressure));
+
                 // 압력이 막 가해지기 시작할 때 방향 고정 (한 번 고정되면 계속 유지)
                 if (pressure > 0.1) {
                     if (lockedAngle === null) {
-                        // 빨간 선 방향의 각도 계산
+                        // 빨간 선 방향의 각도 계산 (원본 좌표 기준)
                         lockedAngle = Math.atan2(dy, dx);
                     }
                 }
             }
+
             // UI 및 암석 업데이트
             pressureBarEl.style.width = `${pressure * 100}%`;
+
             // 화면 중앙에 암석 그리기 (손 상태와 무관하게 매 프레임 그리기 보장)
             const centerX = canvasElement.width / 2;
             const centerY = canvasElement.height / 2;
             drawRock(canvasCtx, centerX, centerY, ROCK_RADIUS, pressure, lockedAngle);
         }
+
         const hands = new Hands({locateFile: (file) => {
             return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
         }});
@@ -273,6 +297,7 @@
             minTrackingConfidence: 0.5
         });
         hands.onResults(onResults);
+
         const camera = new Camera(videoElement, {
             onFrame: async () => {
                 await hands.send({image: videoElement});
