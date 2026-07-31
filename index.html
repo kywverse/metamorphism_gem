@@ -97,20 +97,16 @@
         </div>
         <div id="notification-msg">양손을 화면에 띄워주세요!</div>
     </div>
-
     <script>
         const videoElement = document.getElementById('video');
         const canvasElement = document.getElementById('canvas');
         const canvasCtx = canvasElement.getContext('2d');
-        
         const rockNameEl = document.getElementById('rock-name');
         const pressureBarEl = document.getElementById('pressure-bar');
         const notificationEl = document.getElementById('notification-msg');
-        
         const ROCK_RADIUS = 150; // 암석 크기 고정
-        let pressure = 0; 
+        let pressure = 0;
         let lockedAngle = null;
-
         // 셰일 광물 입자 위치 고정
         let shaleMineralParticles = [];
         function initializeShaleParticles(radius) {
@@ -123,49 +119,38 @@
                 });
             }
         }
-        
         // 초기화 (페이지 로드 시 즉시 실행)
         initializeShaleParticles(ROCK_RADIUS);
-
         function resizeCanvas() {
             canvasElement.width = window.innerWidth;
             canvasElement.height = window.innerHeight;
         }
         window.addEventListener('resize', resizeCanvas);
         resizeCanvas();
-
         // 암석 렌더링 함수
         function drawRock(ctx, x, y, radius, pressureLevel, angle) {
             ctx.save();
             ctx.translate(x, y);
-            
             // 압력 방향의 수직(엽리 방향)으로 회전 (방향이 고정되었을 때만)
             if (angle !== null) {
                 ctx.rotate(angle + Math.PI / 2);
             }
-
             // [1] 암석 바탕(원형) - 모든 단계 공통
             ctx.beginPath();
             ctx.arc(0, 0, radius, 0, 2 * Math.PI);
-            
             // 압력에 따른 배경색 변화
             const bgIntensity = Math.floor(130 - (pressureLevel * 80));
             ctx.fillStyle = `rgb(${bgIntensity}, ${bgIntensity}, ${bgIntensity + 10})`;
             ctx.fill();
-            
             ctx.lineWidth = 4;
             ctx.strokeStyle = '#333';
             ctx.stroke();
-            
             ctx.clip(); // 원 안쪽으로만 조직을 그리기 위해 클리핑
-
             // [2] 압력 단계별 암석 조직 그리기
-            
             // 셰일 (미변성) - 낮은 압력 또는 방향 고정 전
             if (pressureLevel < 0.2 || angle === null) {
                 rockNameEl.innerText = "셰일 (Shale) - 방향성 없음";
                 rockNameEl.style.color = "#a0a0a0";
-                
                 // 고정된 무작위 점토 광물 무늬
                 ctx.fillStyle = "rgba(70, 70, 70, 0.8)";
                 shaleMineralParticles.forEach(particle => {
@@ -173,11 +158,9 @@
                     ctx.arc(particle.x, particle.y, particle.r, 0, Math.PI*2);
                     ctx.fill();
                 });
-
             } else if (pressureLevel < 0.5) {
                 rockNameEl.innerText = "슬레이트/천매암 - 얇은 편리";
                 rockNameEl.style.color = "#4db8ff";
-                
                 ctx.strokeStyle = "rgba(255,255,255,0.3)";
                 ctx.lineWidth = 1.2;
                 for(let i=-radius; i<radius; i+=10) {
@@ -189,7 +172,6 @@
             } else if (pressureLevel < 0.8) {
                 rockNameEl.innerText = "편암 (Schist) - 뚜렷한 편리";
                 rockNameEl.style.color = "#ffeb3b";
-                
                 ctx.lineWidth = 3.5;
                 for(let i=-radius*1.2; i<radius*1.2; i+=15) {
                     // 밝고 어두운 선 혼합
@@ -203,7 +185,6 @@
             } else {
                 rockNameEl.innerText = "편마암 (Gneiss) - 편마 구조";
                 rockNameEl.style.color = "#ff5722";
-                
                 ctx.lineWidth = 14; // 두꺼운 띠
                 for(let i=-radius*1.5; i<radius*1.5; i+=22) {
                     // 밝은 띠(석영, 장석)와 어두운 띠(흑운모, 각섬석) 교차
@@ -215,19 +196,15 @@
                     ctx.stroke();
                 }
             }
-            
             ctx.restore(); // 클리핑 및 회전 해제
         }
-
         function onResults(results) {
             // 매 프레임 캔버스를 깨끗이 지웁니다 (비디오 위에 렌더링 위해)
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-            
             let numHands = 0;
             if (results.multiHandLandmarks) {
                 numHands = results.multiHandLandmarks.length;
             }
-
             if (numHands === 0) {
                 // 손이 인식되지 않음
                 notificationEl.innerText = "양손을 화면에 띄워주세요!";
@@ -242,22 +219,18 @@
             } else {
                 // 양손 모두 인식됨
                 notificationEl.style.display = "none"; // 알림 숨김
-
                 // 거리를 거울모드 기준으로 다시 계산하기 위해 좌우 반전 복원
-                const h1 = results.multiHandLandmarks[0][9]; 
-                const h2 = results.multiHandLandmarks[1][9]; 
-
+                const h1 = results.multiHandLandmarks[0][9];
+                const h2 = results.multiHandLandmarks[1][9];
                 // 인식된 손 좌표를 캔버스 실제 크기로 변환
                 const h1X = h1.x * canvasElement.width;
                 const h1Y = h1.y * canvasElement.height;
                 const h2X = h2.x * canvasElement.width;
                 const h2Y = h2.y * canvasElement.height;
-
                 // 손 위치 시각화 (녹색 점)
                 canvasCtx.fillStyle = 'rgba(0, 255, 0, 0.6)';
-                canvasCtx.beginPath(); ctx.arc(h1X, h1Y, 15, 0, 2*Math.PI); canvasCtx.fill();
-                canvasCtx.beginPath(); ctx.arc(h2X, h2Y, 15, 0, 2*Math.PI); canvasCtx.fill();
-
+                canvasCtx.beginPath(); canvasCtx.arc(h1X, h1Y, 15, 0, 2*Math.PI); canvasCtx.fill();
+                canvasCtx.beginPath(); canvasCtx.arc(h2X, h2Y, 15, 0, 2*Math.PI); canvasCtx.fill();
                 // 압력 방향 시각화 (빨간 선)
                 canvasCtx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
                 canvasCtx.lineWidth = 6;
@@ -265,20 +238,16 @@
                 canvasCtx.moveTo(h1X, h1Y);
                 canvasCtx.lineTo(h2X, h2Y);
                 canvasCtx.stroke();
-
                 // [핵심] 거리 계산 및 압력 치환
                 // dx 계산 시, MediaPipe 원본 좌표(h1.x)를 사용하여 반전으로 인한 혼란 방지
                 const dx = h1.x - h2.x;
                 const dy = h1.y - h2.y;
                 const distance = Math.sqrt(dx*dx + dy*dy);
-
                 // 반응 범위 확대 (더 민감하게)
                 const MAX_DIST = 0.75; // 이 거리보다 멀면 압력 0
                 const MIN_DIST = 0.08; // 이 거리보다 가까우면 압력 1
-
                 let rawPressure = 1 - ((distance - MIN_DIST) / (MAX_DIST - MIN_DIST));
-                pressure = Math.max(0, Math.min(1, rawPressure)); 
-
+                pressure = Math.max(0, Math.min(1, rawPressure));
                 // 압력이 막 가해지기 시작할 때 방향 고정 (한 번 고정되면 계속 유지)
                 if (pressure > 0.1) {
                     if (lockedAngle === null) {
@@ -287,29 +256,23 @@
                     }
                 }
             }
-
             // UI 및 암석 업데이트
             pressureBarEl.style.width = `${pressure * 100}%`;
-
             // 화면 중앙에 암석 그리기 (손 상태와 무관하게 매 프레임 그리기 보장)
             const centerX = canvasElement.width / 2;
             const centerY = canvasElement.height / 2;
             drawRock(canvasCtx, centerX, centerY, ROCK_RADIUS, pressure, lockedAngle);
         }
-
         const hands = new Hands({locateFile: (file) => {
             return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
         }});
-        
         hands.setOptions({
             maxNumHands: 2,
             modelComplexity: 1, // 성능과 정확도 균형
             minDetectionConfidence: 0.5,
             minTrackingConfidence: 0.5
         });
-        
         hands.onResults(onResults);
-
         const camera = new Camera(videoElement, {
             onFrame: async () => {
                 await hands.send({image: videoElement});
